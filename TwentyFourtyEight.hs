@@ -1,8 +1,13 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedStrings #-}
 module TwentyFourtyEight where
 
 import System.Random
+import Data.List
+import Data.Char (digitToInt, isSpace)
+import System.IO
+
+import Control.Monad.Trans
+import Control.Monad.State
+import Control.Monad (when, forever)
 
 --------------------------------------------------------------------------------
 -- Grid
@@ -14,24 +19,36 @@ type Grid = [Row]
 
 showGrid :: Grid -> String
 showGrid [] = ""
-showGrid (row : rows) = (concatMap ((++ " ") . show) row) ++ "\n" ++ showGrid rows
+showGrid (row : rows) =
+  (concatMap ((++ " ") . show) row) ++ "\n" ++ showGrid rows
 
 initial :: Grid
-initial = replicate 4 [0, 0, 0, 0]
-
--- >>> print . showGrid $ initial
--- "0 0 0 0 \n0 0 0 0 \n0 0 0 0 \n0 0 0 0 \n"
+initial = map (map digitToInt) [
+  "0000",
+  "0200",
+  "0000",
+  "0200"
+  ]
+  
+-- >>> putStrLn . showGrid $ initial
+-- 0 0 0 0 
+-- 0 0 0 0 
+-- 0 0 0 0 
+-- 0 0 0 2
 
 --------------------------------------------------------------------------------
 -- Grid rotation
+--
+-- `rotate n` rotates the grid counter-clockwise n times.
 --------------------------------------------------------------------------------
 
-data Degree = Zero | Ninety | OneEighty | TwoSeventy deriving Show
-
-rotate :: Degree -> Grid -> Grid
-rotate Zero    grid = grid
-rotate Ninety  (row : rows) = _
-
+rotate :: Int -> Grid -> Grid
+rotate 0 grid = grid
+rotate 1 grid = reverse . transpose $ grid
+rotate n grid
+ | n <= 3    = rotate (n - 1) (rotate 1 grid) 
+ | otherwise = rotate (n `mod` 4) grid
+ 
 {-------------------------------------------------------------------------------
 Grid actions
 ------------
@@ -41,20 +58,24 @@ of rotating the grid, performing the left action, then unrotating.
 
 -------------------------------------------------------------------------------}
 
+flatten :: Grid -> Row
+flatten = concat
 
+inflate :: Row -> Grid
+inflate [] = []
+inflate xs = (take 4 xs) : (inflate (drop 4 xs))
 
+insert2 :: Int -> Grid -> Grid
+insert2 i xs = inflate $ take i flat ++ [2] ++ drop (i+1) flat
+  where
+    flat = flatten xs
+                       
 unfill, refill, combine :: Row -> Row
 unfill = filter (/= 0)
-
--- >>> unfill [4, 0, 2, 0]
--- [4,2]
 
 refill xs
   | length xs == 4 = xs
   | otherwise = xs ++ replicate (4 - length xs) 0
-
--- >>> refill [4, 2]
--- [4,2,0,0]
 
 combine [] = []
 combine [x] = [x]
@@ -62,48 +83,66 @@ combine (x : y: ys)
   | x == y    = (x + y) : combine ys
   | otherwise = x : combine (y : ys)
 
--- >>> combine [2, 2, 2, 2]
--- [4,4]
-
 left :: Grid -> Grid
 left = map (refill . combine . unfill)
 
 
--- >>> left [[2, 8, 2, 2]]
--- [[2,8,4,0]]
+data Action = L | R | U | D | Exit deriving (Show, Eq)
 
-data Action = U | D | L | R
-
--- work :: Action -> Grid -> Grid
--- work _ (Grid [])           = Grid []
--- work Left (Grid rows)      = map lCombine rows
--- work Up (Grid (row : rows)) = _
-
+work :: Action -> Grid -> Grid
+work L grid = left grid
+work U grid = (rotate 3) . left . (rotate 1) $ grid
+work D grid = (rotate 1) . left . (rotate 3) $ grid
+work R grid = (rotate 2) . left . (rotate 2) $ grid
 
 --------------------------------------------------------------------------------
 -- main
 --------------------------------------------------------------------------------
 
--- populateEmptySpace :: Grid -> IO Grid
--- populateEmptySpace grid = do
---   seed <- newStdGen
---   r <- randomRIO (False, True)
---   case row of
-    
---   return r
 
-  
--- getEmptySpaces (row : rows) = 
+getKeyAction :: IO (Action)
+getKeyAction = do
+  c <- getLine
+  case c of
+    "w"  -> return U
+    "a"  -> return L
+    "s"  -> return D
+    "d"  -> return R
+    _    -> return Exit
 
--- getRandomSpace :: Grid -> IO (Int, Int)
--- getRandomSpace = do
+-- insertRandomBlank :: Grid -> IO (Grid)
+-- insertRandomBlank grid = do
 --   g <- newStdGen
 --   let r = (0, 3) :: (Int, Int)
---   return . fst $ (randomR r g)
+--   let (i, j) = (randomR r g, randomR r g)
+--   return (insert (i, j) grid)
+  
+run :: StateT Grid IO ()
+run = do
+  action <- liftIO getKeyAction
+  grid <- get
+  let grid' = insert2 15 (work action grid)
+  put grid'
+  liftIO $ putStr (showGrid grid')
+  run
 
 main :: IO ()
 main = do
- return ()
+  hSetBuffering stdin NoBuffering
+  hSetEcho stdin False
+  runStateT run initial >> return ()
+    
+    -- grid <- get
+    -- putStr . showGrid $ (work action grid)
+  -- k <- getChar
+  -- forever $ 
+  -- putStrLn (show k)
+  
+    
+-- main :: IO ()
+-- main = do
+--   input <- 
+--  putStrLn . showGrid $ initial
 
 -- >>> :t random
 -- random :: (Random a, RandomGen g) => g -> (a, g)
